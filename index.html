@@ -221,7 +221,10 @@ tbody td.num{text-align:center}
 <div class="page" id="page-stakeholder">
   <div class="section-header">
     <h2>Data Stakeholder</h2>
-    <button class="btn-secondary" onclick="exportStakeholder()">⬇ Export Excel</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn-secondary" onclick="exportStakeholder()">⬇ Export Excel</button>
+      <button class="btn-primary btn-sm" onclick="uploadStakeholder()" id="btn-upload-stk">☁ Upload ke GSheet</button>
+    </div>
   </div>
   <div class="summary-row" id="stk-summary"></div>
   <div class="tab-bar" id="stk-tabs"></div>
@@ -232,7 +235,10 @@ tbody td.num{text-align:center}
 <div class="page" id="page-monitoring">
   <div class="section-header">
     <h2>Monthly Monitoring</h2>
-    <button class="btn-secondary" onclick="exportMonitoring()">⬇ Export Excel</button>
+    <div style="display:flex;gap:8px">
+      <button class="btn-secondary" onclick="exportMonitoring()">⬇ Export Excel</button>
+      <button class="btn-primary btn-sm" onclick="uploadMonitoring()" id="btn-upload-mon">☁ Upload ke GSheet</button>
+    </div>
   </div>
   <div class="summary-row" id="mon-summary"></div>
   <div class="tbl-wrap" style="margin-top:8px">
@@ -363,6 +369,7 @@ function dbDelete(store,key){
 // ═══════════════════════════════
 let SCN_NAME = '';
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbyxULjqVCoFPZgC9Ahjo0xFC3LVzDXuz7IOWewCUyBdwsRYg2zfDHhl-EcQkc1f64co/exec';
 
 async function init(){
   await openDB();
@@ -1146,6 +1153,130 @@ function toast(msg, type=''){
 // START
 // ═══════════════════════════════
 init();
+
+// ═══════════════════════════════
+// UPLOAD KE GSHEET
+// ═══════════════════════════════
+
+async function uploadStakeholder(){
+  const all = await dbGetAll('kegiatan');
+  if(!all.length){ toast('Tidak ada data untuk diupload','err'); return; }
+
+  const btn = document.getElementById('btn-upload-stk');
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Mengupload...';
+
+  const data = buildStakeholderData(all);
+  const rows = [];
+
+  KATEGORI_SHEETS.forEach(kat=>{
+    const people = Object.values(data[kat].namaMap);
+    const kegs   = data[kat].kegiatan;
+    people.forEach((p, idx)=>{
+      rows.push({
+        tahun           : new Date().getFullYear(),
+        bulan           : BULAN[new Date().getMonth()],
+        nama_kegiatan   : kegs.join(', '),
+        kategori        : kat,
+        no              : idx + 1,
+        nama            : p.nama,
+        usia            : p.usia,
+        jenis_kelamin   : p.jk,
+        instansi        : p.instansi,
+        posisi          : p.jabatan,
+        jumlah_kegiatan : kegs.filter(k=>p.keg[k]===1).length,
+      });
+    });
+  });
+
+  if(!rows.length){ toast('Tidak ada data stakeholder','err'); btn.disabled=false; btn.innerHTML='☁ Upload ke GSheet'; return; }
+
+  try {
+    const resp = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'simpan_stakeholder', scn: SCN_NAME, rows }),
+    });
+    const json = await resp.json();
+    if(json.ok){
+      toast(`✓ ${json.rows} baris stakeholder berhasil diupload ke GSheet`,'ok');
+    } else {
+      toast('Gagal upload: '+(json.error||'unknown'),'err');
+    }
+  } catch(e){
+    toast('Error upload: '+e.message,'err');
+  }
+  btn.disabled=false;
+  btn.innerHTML='☁ Upload ke GSheet';
+}
+
+async function uploadMonitoring(){
+  const all = await dbGetAll('kegiatan');
+  if(!all.length){ toast('Tidak ada data untuk diupload','err'); return; }
+
+  const btn = document.getElementById('btn-upload-mon');
+  btn.disabled=true;
+  btn.innerHTML='<span class="spinner"></span>Mengupload...';
+
+  const sorted = [...all].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  const rows = sorted.map(kg=>{
+    const r = calcRow(kg);
+    return {
+      tahun           : r.tahun,
+      bulan           : r.bulan,
+      outcome         : r.outcome        || '',
+      output          : r.output         || '',
+      indikator       : r.indikator      || '',
+      jenis_kegiatan  : r.jenis_kegiatan || '',
+      nama_kegiatan   : r.nama_kegiatan  || '',
+      pelaksana       : r.pelaksana      || '',
+      pelaporan       : r.pelaporan      || '',
+      peserta_target  : r.peserta_target || '',
+      tanggal         : r.tanggal        || '',
+      lokasi          : r.lokasi         || '',
+      laki            : r.laki           || 0,
+      perempuan       : r.perempuan      || 0,
+      u25             : r.u25            || 0,
+      u26             : r.u26            || 0,
+      total           : r.total          || 0,
+      oypmk           : r.oypmk          || 0,
+      disab           : r.disab          || 0,
+      non_disab       : r.nonDisab       || 0,
+      guru            : r.guru           || 0,
+      pengasuh        : r.pengasuh       || 0,
+      cbr             : r.cbr            || 0,
+      nakes           : r.nakes          || 0,
+      staff           : r.staff          || 0,
+      pemerintah      : r.pemerintah     || 0,
+      lainnya         : r.lainnya        || 0,
+      total_inst      : r.totalInst      || 0,
+      tangible_output : r.tangible_output|| '',
+      follow_up       : r.follow_up      || '',
+      evaluasi        : r.evaluasi       || '',
+      lesson_learnt   : r.lesson_learnt  || '',
+      capaian         : r.capaian        || '',
+    };
+  });
+
+  try {
+    const resp = await fetch(GAS_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain'},
+      body: JSON.stringify({ action:'simpan_monthly', scn: SCN_NAME, rows }),
+    });
+    const json = await resp.json();
+    if(json.ok){
+      toast(`✓ ${json.rows} baris monitoring berhasil diupload ke GSheet`,'ok');
+    } else {
+      toast('Gagal upload: '+(json.error||'unknown'),'err');
+    }
+  } catch(e){
+    toast('Error upload: '+e.message,'err');
+  }
+  btn.disabled=false;
+  btn.innerHTML='☁ Upload ke GSheet';
+}
+
 </script>
 </body>
 </html>
