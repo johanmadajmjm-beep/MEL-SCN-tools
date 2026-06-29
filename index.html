@@ -1158,6 +1158,20 @@ init();
 // UPLOAD KE GSHEET
 // ═══════════════════════════════
 
+function excelDateToStr(val){
+  if(!val) return '';
+  // Jika sudah string tanggal (bukan angka), kembalikan langsung
+  if(isNaN(val)) return String(val);
+  // Konversi Excel serial date ke JS Date
+  // Excel epoch: 1 Jan 1900 = 1, tapi ada bug leap year 1900
+  const serial = parseInt(val);
+  const utc = new Date(Date.UTC(1899, 11, 30) + serial * 86400000);
+  const d = utc.getUTCDate().toString().padStart(2,'0');
+  const m = (utc.getUTCMonth()+1).toString().padStart(2,'0');
+  const y = utc.getUTCFullYear();
+  return d+'/'+m+'/'+y;
+}
+
 async function uploadStakeholder(){
   const all = await dbGetAll('kegiatan');
   if(!all.length){ toast('Tidak ada data untuk diupload','err'); return; }
@@ -1174,7 +1188,7 @@ async function uploadStakeholder(){
   all.forEach(kg=>{
     const kegName = kg.wordData?.nama_kegiatan || '(tanpa judul)';
     // Ambil tanggal dari kolom "Tanggal Kegiatan" di excelRows (baris pertama yang punya nilai)
-    const tgl = (kg.excelRows||[]).map(r=>r['Tanggal Kegiatan']||'').find(t=>t) || '';
+    const tgl = excelDateToStr((kg.excelRows||[]).map(r=>r['Tanggal Kegiatan']||'').find(t=>t) || '');
     kegTanggal[kegName] = tgl;
   });
 
