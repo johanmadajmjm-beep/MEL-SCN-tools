@@ -369,7 +369,7 @@ function dbDelete(store,key){
 // ═══════════════════════════════
 let SCN_NAME = '';
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbyxULjqVCoFPZgC9Ahjo0xFC3LVzDXuz7IOWewCUyBdwsRYg2zfDHhl-EcQkc1f64co/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwJK4HM0t2YNIySWOI8mqphXItJzYT0bDi9e78hVSDUZGwIdLtuhMJsBr2fpghYMmdJ/exec';
 
 async function init(){
   await openDB();
@@ -1169,13 +1169,25 @@ async function uploadStakeholder(){
   const data = buildStakeholderData(all);
   const rows = [];
 
+  // Buat lookup: nama_kegiatan -> tanggal_kegiatan (dari excelRows tiap kegiatan)
+  const kegTanggal = {};
+  all.forEach(kg=>{
+    const kegName = kg.wordData?.nama_kegiatan || '(tanpa judul)';
+    // Ambil tanggal dari kolom "Tanggal Kegiatan" di excelRows (baris pertama yang punya nilai)
+    const tgl = (kg.excelRows||[]).map(r=>r['Tanggal Kegiatan']||'').find(t=>t) || '';
+    kegTanggal[kegName] = tgl;
+  });
+
   KATEGORI_SHEETS.forEach(kat=>{
     const people = Object.values(data[kat].namaMap);
     const kegs   = data[kat].kegiatan;
     people.forEach((p, idx)=>{
+      // Ambil tanggal dari kegiatan pertama yang diikuti orang ini
+      const kegDiikuti = kegs.filter(k=>p.keg[k]===1);
+      const tanggal_kegiatan = kegDiikuti.length ? (kegTanggal[kegDiikuti[0]] || '') : '';
       rows.push({
-        tahun           : new Date().getFullYear(),
-        bulan           : BULAN[new Date().getMonth()],
+        scn             : SCN_NAME,
+        tanggal_kegiatan,
         nama_kegiatan   : kegs.join(', '),
         kategori        : kat,
         no              : idx + 1,
