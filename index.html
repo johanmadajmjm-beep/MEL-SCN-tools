@@ -369,7 +369,7 @@ function dbDelete(store,key){
 // ═══════════════════════════════
 let SCN_NAME = '';
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbwJK4HM0t2YNIySWOI8mqphXItJzYT0bDi9e78hVSDUZGwIdLtuhMJsBr2fpghYMmdJ/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbzY4CfLPnW-Q9lTyvfkbkEgmPeVdNVLeVm7zLBxHAX4xquocm06BoKvt-y8sZMatGBA/exec';
 
 async function init(){
   await openDB();
@@ -1281,6 +1281,9 @@ async function uploadMonitoring(){
       evaluasi        : r.evaluasi       || '',
       lesson_learnt   : r.lesson_learnt  || '',
       capaian         : r.capaian        || '',
+      remarks         : '',
+      ceklis          : '',
+      dokumen         : '',
     };
   });
 
