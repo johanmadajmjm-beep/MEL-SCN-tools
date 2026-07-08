@@ -500,11 +500,18 @@ function parseWordHtml(html){
     }
     return '';
   };
+  // Exact match — untuk kolom yang namanya subset dari kolom lain (misal "output" vs "tangible output")
+  const getExact = (...keys)=>{
+    for(const [lbl,val] of Object.entries(tabelMap)){
+      if(keys.some(k=>norm(lbl)===norm(k))) return val;
+    }
+    return '';
+  };
 
   return {
     nama_kegiatan   : get('judul kegiatan','name'),
     outcome         : get('outcome'),
-    output          : get('output'),
+    output          : getExact('output'),
     indikator       : get('indikator'),
     jenis_kegiatan  : get('jenis kegiatan','budget'),
     pelaksana       : get('pelaksana'),
