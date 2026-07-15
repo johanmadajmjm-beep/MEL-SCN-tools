@@ -688,17 +688,27 @@ const SHEET_NAME_MAP = {
 };
 
 function buildStakeholderData(kegiatan){
-  // Returns: { kategori: { namaList:[{nama,usia,jk,instansi,jabatan}], kegiatan:[kegName,...], matrix:{nama:[0/1,...]} } }
+  // Returns: { kategori: { namaMap:{}, kegiatan:[{key,label},...] } }
+  // key  = unik per kegiatan (nama||tanggal) — dipakai sebagai index di p.keg
+  // label = teks yang ditampilkan (nama - tanggal)
   const result = {};
   KATEGORI_SHEETS.forEach(k=>{ result[k]={namaMap:{},kegiatan:[]}; });
 
   kegiatan.forEach(kg=>{
     const kegName = kg.wordData?.nama_kegiatan || '(tanpa judul)';
+    const tglVal  = (kg.excelRows||[]).map(r=>r['Tanggal Kegiatan']||'').find(t=>t) || '';
+    const tglStr  = excelDateToStr(tglVal);
+    // Key unik: gabungkan nama + tanggal supaya kegiatan beda tanggal tidak overwrite
+    const kegKey   = tglStr ? kegName+'||'+tglStr : kegName;
+    const kegLabel = tglStr ? kegName+' - '+tglStr : kegName;
+
     (kg.excelRows||[]).forEach(row=>{
       const kat = (row['Kategori Benef']||'').trim();
       if(!result[kat]) return;
-      // Add kegiatan column if not exists
-      if(!result[kat].kegiatan.includes(kegName)) result[kat].kegiatan.push(kegName);
+      // Tambah kolom kegiatan jika belum ada (check by key)
+      if(!result[kat].kegiatan.find(k=>k.key===kegKey)){
+        result[kat].kegiatan.push({key:kegKey, label:kegLabel});
+      }
 
       const nama = (row['Nama Benef']||'').trim();
       if(!nama) return;
@@ -709,11 +719,11 @@ function buildStakeholderData(kegiatan){
           keg:{}
         };
       }
-      result[kat].namaMap[nama].keg[kegName]=1;
+      result[kat].namaMap[nama].keg[kegKey]=1;
     });
-    // Mark 0 for people not in this kegiatan
+    // Mark 0 untuk orang yang tidak ikut kegiatan ini
     KATEGORI_SHEETS.forEach(k=>{
-      Object.values(result[k].namaMap).forEach(p=>{ if(!(kegName in p.keg)) p.keg[kegName]=0; });
+      Object.values(result[k].namaMap).forEach(p=>{ if(!(kegKey in p.keg)) p.keg[kegKey]=0; });
     });
   });
   return result;
@@ -755,13 +765,13 @@ async function renderStakeholder(){
 
     if(!people.length){ div.innerHTML='<div class="empty-state" style="padding:24px"><p>Tidak ada data untuk kategori ini.</p></div>'; tabCon.appendChild(div); return; }
 
-    const kegHeaders = kegs.map(k=>`<th class="keg-col" title="${k}">${k.length>30?k.substring(0,28)+'…':k}</th>`).join('');
+    const kegHeaders = kegs.map(({label})=>`<th class="keg-col" title="${label}">${label.length>30?label.substring(0,28)+'…':label}</th>`).join('');
     const rows = people.map((p,idx)=>`<tr>
       <td class="num">${idx+1}</td>
       <td>${p.nama}</td><td class="num">${p.usia}</td><td>${p.jk}</td>
       <td>${p.instansi}</td><td>${p.jabatan}</td>
-      ${kegs.map(k=>`<td class="num">${p.keg[k]===1?'<span class="badge-1">1</span>':'<span class="badge-0">0</span>'}</td>`).join('')}
-      <td class="num"><strong>${kegs.filter(k=>p.keg[k]===1).length}</strong></td>
+      ${kegs.map(({key})=>`<td class="num">${p.keg[key]===1?'<span class="badge-1">1</span>':'<span class="badge-0">0</span>'}</td>`).join('')}
+      <td class="num"><strong>${kegs.filter(({key})=>p.keg[key]===1).length}</strong></td>
     </tr>`).join('');
 
     div.innerHTML=`<div class="tbl-wrap"><table>
@@ -1031,13 +1041,7 @@ async function exportStakeholder(){
   const now = new Date();
   const tgl = `${now.getDate()} ${BULAN[now.getMonth()]} ${now.getFullYear()}`;
 
-  // Lookup: nama_kegiatan -> tanggal string (dd/mm/yyyy)
-  const kegTanggal = {};
-  all.forEach(kg=>{
-    const kegName = kg.wordData?.nama_kegiatan || '(tanpa judul)';
-    const tglVal = (kg.excelRows||[]).map(r=>r['Tanggal Kegiatan']||'').find(t=>t) || '';
-    kegTanggal[kegName] = excelDateToStr(tglVal);
-  });
+  // kegTanggal tidak lagi diperlukan — label sudah mengandung tanggal dari buildStakeholderData
 
   const wb = new ExcelJS.Workbook();
 
@@ -1059,7 +1063,7 @@ async function exportStakeholder(){
     ws.getCell('A4').value='Tanggal Update';
     ws.getCell('C4').value=`: ${tgl}`;
 
-    const kegs = data[kat].kegiatan;
+    const kegs = data[kat].kegiatan; // [{key,label}]
     const totalCol = 6 + kegs.length + 1; // A-F + kegiatan cols + Total
     const lastKegCol = 6 + kegs.length;   // kolom terakhir kegiatan (1-indexed)
     const totalColLetter = colLetter(totalCol);
@@ -1095,12 +1099,11 @@ async function exportStakeholder(){
     totC.alignment={horizontal:'center',vertical:'middle',wrapText:true};
     try{ws.mergeCells(`${totalColLetter}6:${totalColLetter}7`);}catch(e){}
 
-    // Baris 7 — nama kegiatan (merah di bg teal)
-    kegs.forEach((keg,ki)=>{
+    // Baris 7 — nama kegiatan (merah di bg teal) — label sudah include tanggal
+    kegs.forEach(({key,label},ki)=>{
       const cl=colLetter(7+ki);
       const c=ws.getCell(`${cl}7`);
-      const tglKeg = kegTanggal[keg];
-      c.value = tglKeg ? `${keg} - ${tglKeg}` : keg;
+      c.value = label;
       c.fill={type:'pattern',pattern:'solid',fgColor:{argb:TEAL}};
       c.font={bold:true,color:{argb:RED}};
       c.alignment={horizontal:'center',vertical:'middle',wrapText:true};
@@ -1131,7 +1134,7 @@ async function exportStakeholder(){
       row.getCell(4).value=jkNorm(p.jk);
       row.getCell(5).value=p.instansi||'';
       row.getCell(6).value=p.jabatan||'';
-      kegs.forEach((keg,ki)=>{ row.getCell(7+ki).value=p.keg[keg]||0; });
+      kegs.forEach(({key},ki)=>{ row.getCell(7+ki).value=p.keg[key]||0; });
       // Formula COUNTIF
       if(kegs.length>0){
         const startRef=`${colLetter(7)}${rowNum}`;
@@ -1216,15 +1219,15 @@ async function uploadStakeholder(){
 
   KATEGORI_SHEETS.forEach(kat=>{
     const people = Object.values(data[kat].namaMap);
-    const kegs   = data[kat].kegiatan;
+    const kegs   = data[kat].kegiatan; // [{key,label}]
     people.forEach((p, idx)=>{
-      // Ambil tanggal dari kegiatan pertama yang diikuti orang ini
-      const kegDiikuti = kegs.filter(k=>p.keg[k]===1);
-      const tanggal_kegiatan = kegDiikuti.length ? (kegTanggal[kegDiikuti[0]] || '') : '';
+      // Ambil kegiatan pertama yang diikuti orang ini
+      const kegDiikuti = kegs.filter(({key})=>p.keg[key]===1);
+      const tanggal_kegiatan = kegDiikuti.length ? (kegDiikuti[0].label.split(' - ')[1] || '') : '';
       rows.push({
         scn             : SCN_NAME,
         tanggal_kegiatan,
-        nama_kegiatan   : kegs.join(', '),
+        nama_kegiatan   : kegs.map(k=>k.label).join(', '),
         kategori        : kat,
         no              : idx + 1,
         nama            : p.nama,
@@ -1232,7 +1235,7 @@ async function uploadStakeholder(){
         jenis_kelamin   : p.jk,
         instansi        : p.instansi,
         posisi          : p.jabatan,
-        jumlah_kegiatan : kegs.filter(k=>p.keg[k]===1).length,
+        jumlah_kegiatan : kegs.filter(({key})=>p.keg[key]===1).length,
       });
     });
   });
