@@ -980,8 +980,13 @@ async function exportMonitoring(){
     AH:25.38,AI:55.38,AJ:12,AK:12,AL:12};
   Object.entries(colW).forEach(([col,w])=>{ ws.getColumn(col).width=w; });
 
-  // Data rows mulai baris 7
-  const sorted = [...all].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  // Data rows mulai baris 7 — sort by tahun ASC lalu bulan ASC
+  const _bulanOrder={januari:0,februari:1,maret:2,april:3,mei:4,juni:5,juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
+  const sorted = [...all].sort((a,b)=>{
+    const ra=calcRow(a), rb=calcRow(b);
+    if(ra.tahun!==rb.tahun) return ra.tahun-rb.tahun;
+    return (_bulanOrder[(ra.bulan||'').toLowerCase()]??99)-(_bulanOrder[(rb.bulan||'').toLowerCase()]??99);
+  });
   sorted.forEach((kg,i)=>{
     const r=calcRow(kg);
     const row=ws.getRow(7+i);
@@ -1025,6 +1030,14 @@ async function exportStakeholder(){
   const data = buildStakeholderData(all);
   const now = new Date();
   const tgl = `${now.getDate()} ${BULAN[now.getMonth()]} ${now.getFullYear()}`;
+
+  // Lookup: nama_kegiatan -> tanggal string (dd/mm/yyyy)
+  const kegTanggal = {};
+  all.forEach(kg=>{
+    const kegName = kg.wordData?.nama_kegiatan || '(tanpa judul)';
+    const tglVal = (kg.excelRows||[]).map(r=>r['Tanggal Kegiatan']||'').find(t=>t) || '';
+    kegTanggal[kegName] = excelDateToStr(tglVal);
+  });
 
   const wb = new ExcelJS.Workbook();
 
@@ -1086,7 +1099,8 @@ async function exportStakeholder(){
     kegs.forEach((keg,ki)=>{
       const cl=colLetter(7+ki);
       const c=ws.getCell(`${cl}7`);
-      c.value=keg;
+      const tglKeg = kegTanggal[keg];
+      c.value = tglKeg ? `${keg} - ${tglKeg}` : keg;
       c.fill={type:'pattern',pattern:'solid',fgColor:{argb:TEAL}};
       c.font={bold:true,color:{argb:RED}};
       c.alignment={horizontal:'center',vertical:'middle',wrapText:true};
@@ -1113,7 +1127,8 @@ async function exportStakeholder(){
       row.getCell(1).value=pi+1;
       row.getCell(2).value=p.nama;
       row.getCell(3).value=p.usia||'';
-      row.getCell(4).value=p.jk||'';
+      const jkNorm=(v=>{const s=(v||'').toLowerCase();return s.includes('laki')?'L':s.includes('perempuan')?'P':v||'';});
+      row.getCell(4).value=jkNorm(p.jk);
       row.getCell(5).value=p.instansi||'';
       row.getCell(6).value=p.jabatan||'';
       kegs.forEach((keg,ki)=>{ row.getCell(7+ki).value=p.keg[keg]||0; });
