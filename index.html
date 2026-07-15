@@ -1248,7 +1248,7 @@ async function uploadStakeholder(){
         no              : idx + 1,
         nama            : p.nama,
         usia            : p.usia,
-        jenis_kelamin   : p.jk,
+        jenis_kelamin   : (v=>{const s=(v||'').toLowerCase();return s.includes('laki')?'L':s.includes('perempuan')?'P':v||''})(p.jk),
         instansi        : p.instansi,
         posisi          : p.jabatan,
         jumlah_kegiatan : kegs.filter(({key})=>p.keg[key]===1).length,
@@ -1285,7 +1285,27 @@ async function uploadMonitoring(){
   btn.disabled=true;
   btn.innerHTML='<span class="spinner"></span>Mengupload...';
 
-  const sorted = [...all].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  const _bo={januari:0,februari:1,maret:2,april:3,mei:4,juni:5,juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
+  const _pt=(tgl)=>{
+    if(!tgl) return null;
+    const p=tgl.trim().split(/[\s\/\-]+/);
+    if(p.length>=3){
+      const bs=p[1].toLowerCase();
+      if(_bo[bs]!==undefined) return new Date(parseInt(p[2]),_bo[bs],parseInt(p[0]));
+      if(p[0].length===4) return new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
+      return new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
+    }
+    return new Date(tgl);
+  };
+  const sorted = [...all].sort((a,b)=>{
+    const ra=calcRow(a), rb=calcRow(b);
+    if(ra.tahun!==rb.tahun) return ra.tahun-rb.tahun;
+    const bd=(_bo[(ra.bulan||'').toLowerCase()]??99)-(_bo[(rb.bulan||'').toLowerCase()]??99);
+    if(bd!==0) return bd;
+    const da=_pt(ra.tanggal), db=_pt(rb.tanggal);
+    if(da&&db&&!isNaN(da)&&!isNaN(db)) return da-db;
+    return 0;
+  });
   const rows = sorted.map(kg=>{
     const r = calcRow(kg);
     return {
