@@ -547,6 +547,8 @@ function parseWordHtml(html){
     output          : getExact('output'),
     indikator       : get('indikator'),
     jenis_kegiatan  : get('jenis kegiatan','budget'),
+    name            : get('name'),
+    budget_line     : get('budget'),
     pelaksana       : get('pelaksana'),
     pelaporan       : get('pelaporan'),
     lokasi          : get('lokasi'),
@@ -672,16 +674,31 @@ async function renderKegiatanList(){
     wrap.innerHTML=`<div class="empty-state"><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="8" y1="8" x2="16" y2="8"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="16" x2="12" y2="16"/></svg><p>Belum ada kegiatan yang disimpan</p></div>`;
     return;
   }
+  const esc=s=>(s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const pad=n=>String(n).padStart(2,'0');
   const sorted = [...all].sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt));
-  wrap.innerHTML=`<div class="kegiatan-list">${sorted.map(k=>`
+  wrap.innerHTML=`<div class="kegiatan-list">${sorted.map(k=>{
+    const wd=k.wordData||{}, rows=k.excelRows||[], r=calcRow(k);
+    // Baris 1: Judul Kegiatan (Budget-line) — budget-line dari Word, fallback kolom "Kode kegiatan" Excel
+    const kodeKey=rows.length?Object.keys(rows[0]).find(h=>h.toLowerCase().startsWith('kode kegiatan')):null;
+    const kodeExcel=kodeKey?(rows.map(x=>x[kodeKey]).find(v=>v!==''&&v!=null)||''):'';
+    const budget=(wd.budget_line||kodeExcel||'').toString().trim();
+    const judul=wd.nama_kegiatan||'(tanpa judul)';
+    // Baris 3: tanggal kegiatan • lokasi • jumlah peserta
+    let tgl;
+    if(r._tglOk){ const d=new Date(r._ts); tgl=pad(d.getDate())+'/'+pad(d.getMonth()+1)+'/'+d.getFullYear(); }
+    else tgl=wd.tanggal||(k.bulan+' '+k.tahun);
+    const meta=[tgl, wd.lokasi, rows.length+' peserta'].filter(Boolean).map(esc).join(' &bull; ');
+    return `
     <div class="kegiatan-item">
       <div class="kg-dot"></div>
       <div class="kg-info">
-        <div class="kg-name">${k.wordData?.nama_kegiatan||'(tanpa judul)'}</div>
-        <div class="kg-meta">${k.bulan} ${k.tahun} &bull; ${k.wordData?.lokasi||''} &bull; ${k.excelRows?.length||0} peserta</div>
+        <div class="kg-name">${esc(judul)}${budget?' <span style="font-weight:400;color:#888">('+esc(budget)+')</span>':''}</div>
+        ${wd.name?`<div class="kg-meta" style="font-style:italic">${esc(wd.name)}</div>`:''}
+        <div class="kg-meta">${meta}</div>
       </div>
       <button class="btn-danger" onclick="deleteKegiatan(${k.id})">Hapus</button>
-    </div>`).join('')}</div>`;
+    </div>`;}).join('')}</div>`;
 }
 
 async function deleteKegiatan(id){
