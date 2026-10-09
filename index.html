@@ -261,7 +261,7 @@ tbody td.num{text-align:center}
           <th rowspan="2">Lokasi Kegiatan</th>
           <th colspan="5">Peserta yang Hadir</th>
           <th colspan="3">Disabilitas</th>
-          <th colspan="8">Asal Institusi</th>
+          <th colspan="10">Asal Institusi</th>
           <th rowspan="2">Tangible Output</th>
           <th rowspan="2">Follow Up / Rekomendasi</th>
           <th rowspan="2">Evaluasi</th>
@@ -274,7 +274,7 @@ tbody td.num{text-align:center}
           <th>Rencana</th><th>Saat ini</th>
           <th>Laki</th><th>Perempuan</th><th>≤25 thn</th><th>≥26 thn</th><th>Total</th>
           <th>OYPMK</th><th>Disabilitas</th><th>Non</th>
-          <th>Guru</th><th>Pengasuh/Ortu</th><th>CBR Worker</th><th>Nakes</th><th>Staff Mitra</th><th>Pemerintah</th><th>Lainnya</th><th>Total</th>
+          <th>Guru</th><th>Pengasuh/Ortu</th><th>CBR Worker</th><th>Nakes</th><th>Staff Mitra</th><th>Pemerintah</th><th>Anak/Remaja Disabilitas</th><th>Anak/Remaja Non Disabilitas</th><th>Lainnya</th><th>Total</th>
           <th>Ceklis</th><th>Dokumen</th>
         </tr>
       </thead>
@@ -369,7 +369,39 @@ function dbDelete(store,key){
 // ═══════════════════════════════
 let SCN_NAME = '';
 const BULAN = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbzY4CfLPnW-Q9lTyvfkbkEgmPeVdNVLeVm7zLBxHAX4xquocm06BoKvt-y8sZMatGBA/exec';
+// ── Helper normalisasi data (FIX) ──
+// Jenis kelamin: terima L/l/Laki-laki/LK dan P/p/Perempuan/PR/Wanita
+function jkCode(v){
+  const s=(v==null?'':String(v)).trim().toLowerCase();
+  if(!s) return '';
+  if(s==='l'||s==='lk'||s.startsWith('laki')||s==='pria') return 'L';
+  if(s==='p'||s==='pr'||s.startsWith('perem')||s.startsWith('wanita')) return 'P';
+  return '';
+}
+// Usia: kembalikan angka, atau null jika kosong/tidak valid (tidak lagi dianggap 0)
+function ageOf(r){
+  const n=parseInt(r['Usia']);
+  return isNaN(n)?null:n;
+}
+// Tanggal format Indonesia: "Selasa, 15 September 2026", "29-30 Mei 2026", "29/05/2026", "2026-05-29"
+function parseTglID(tgl){
+  if(tgl==null||tgl==='') return null;
+  const s=String(tgl).trim();
+  const BLN={jan:0,feb:1,mar:2,apr:3,mei:4,may:4,jun:5,jul:6,agu:7,agt:7,ags:7,aug:7,sep:8,okt:9,oct:9,nov:10,nop:10,des:11,dec:11};
+  const m=s.match(/(\d{1,2})(?:\s*[-–]\s*\d{1,2})?\s+([A-Za-z]+)/);
+  const y=s.match(/\b(\d{4})\b/);
+  if(m&&y){
+    const bi=BLN[m[2].toLowerCase().slice(0,3)];
+    if(bi!==undefined){ const d=new Date(parseInt(y[1]),bi,parseInt(m[1])); if(!isNaN(d)) return d; }
+  }
+  let p=s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
+  if(p) return new Date(+p[1],+p[2]-1,+p[3]);
+  p=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})/);
+  if(p) return new Date(+p[3],+p[2]-1,+p[1]);
+  return null;
+}
+
+const GAS_URL ='https://script.google.com/macros/s/AKfycbzY4CfLPnW-Q9lTyvfkbkEgmPeVdNVLeVm7zLBxHAX4xquocm06BoKvt-y8sZMatGBA/exec';
 
 async function init(){
   await openDB();
@@ -509,7 +541,8 @@ function parseWordHtml(html){
   };
 
   return {
-    nama_kegiatan   : get('judul kegiatan','name'),
+    // FIX: prioritaskan "Judul Kegiatan"; pakai "Name" hanya jika Judul kosong
+    nama_kegiatan   : get('judul kegiatan') || get('name'),
     outcome         : get('outcome'),
     output          : getExact('output'),
     indikator       : get('indikator'),
@@ -567,8 +600,8 @@ function tryShowPreview(){
   const rows = excelRows||[];
 
   // Hitung stats
-  const laki = rows.filter(r=>(r['Jenis Kelamin']||'').includes('Laki')).length;
-  const perempuan = rows.filter(r=>(r['Jenis Kelamin']||'').includes('Perempuan')).length;
+  const laki = rows.filter(r=>jkCode(r['Jenis Kelamin'])==='L').length;
+  const perempuan = rows.filter(r=>jkCode(r['Jenis Kelamin'])==='P').length;
   const disab = rows.filter(r=>{const v=(r['Disabilitas']||r['Disabiltas']||'').toString().toLowerCase();return v==='ya'||v==='iya'||v==='yes'||v==='1';}).length;
 
   document.getElementById('preview-fields').innerHTML=`
@@ -790,50 +823,43 @@ async function renderStakeholder(){
 function calcRow(kg){
   const rows = kg.excelRows||[];
   const wd   = kg.wordData||{};
-  const laki = rows.filter(r=>(r['Jenis Kelamin']||'').includes('Laki')).length;
-  const perempuan = rows.filter(r=>(r['Jenis Kelamin']||'').includes('Perempuan')).length;
+  // FIX: Jenis Kelamin terima L/P maupun Laki-laki/Perempuan
+  const laki = rows.filter(r=>jkCode(r['Jenis Kelamin'])==='L').length;
+  const perempuan = rows.filter(r=>jkCode(r['Jenis Kelamin'])==='P').length;
   const total = rows.length;
-  const u25 = rows.filter(r=>parseInt(r['Usia']||0)<=25).length;
-  const u26 = rows.filter(r=>parseInt(r['Usia']||0)>=26).length;
-  const disab = rows.filter(r=>{const v=(r['Disabilitas']||r['Disabiltas']||'').toString().toLowerCase();return v==='ya'||v==='iya'||v==='yes'||v==='1';}).length;
+  // FIX: usia kosong tidak dihitung sebagai <=25
+  const u25 = rows.filter(r=>{const a=ageOf(r);return a!==null&&a<=25;}).length;
+  const u26 = rows.filter(r=>{const a=ageOf(r);return a!==null&&a>=26;}).length;
+  const disab = rows.filter(r=>{const v=(r['Disabilitas']||r['Disabiltas']||'').toString().trim().toLowerCase();return v==='ya'||v==='iya'||v==='yes'||v==='1';}).length;
   const nonDisab = total-disab;
-  const count = kat=>rows.filter(r=>(r['Kategori Benef']||'').trim()===kat).length;
+  const count = kat=>rows.filter(r=>(r['Kategori Benef']||'').toString().trim().toLowerCase()===kat.toLowerCase()).length;
   const targetRaw=(wd.target_peserta||'').toString();
   const tNum=(targetRaw.match(/\d+/)||[])[0]||'';
   // Format: hadir / target
   const pesertaTarget=tNum?`${total} / ${tNum}`:`${total}`;
-  // Tahun & Bulan dari tanggal kegiatan, bukan createdAt
-  const parseTanggal=(tgl)=>{
-    if(!tgl) return null;
-    // Format: "29 Mei 2026" atau "29/05/2026" atau "2026-05-29"
-    const bulanMap={januari:0,februari:1,maret:2,april:3,mei:4,juni:5,juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
-    const parts = tgl.trim().split(/[\s\/\-]+/);
-    if(parts.length>=3){
-      // cek apakah ada nama bulan
-      const bulanStr = parts[1].toLowerCase();
-      if(bulanMap[bulanStr]!==undefined){
-        return new Date(parseInt(parts[2]), bulanMap[bulanStr], parseInt(parts[0]));
-      }
-      // format angka: coba dd/mm/yyyy atau yyyy-mm-dd
-      if(parts[0].length===4) return new Date(parseInt(parts[0]),parseInt(parts[1])-1,parseInt(parts[2]));
-      return new Date(parseInt(parts[2]),parseInt(parts[1])-1,parseInt(parts[0]));
-    }
-    return new Date(tgl);
-  };
-  const tglDate = parseTanggal(wd.tanggal);
+  // FIX: Tanggal utama dari kolom "Tanggal Kegiatan" Excel Benef; fallback ke tanggal Word
+  const tglExcelRaw = rows.map(r=>r['Tanggal Kegiatan']).find(t=>t!==undefined&&t!==null&&t!=='');
+  const tglExcelStr = tglExcelRaw!==undefined ? excelDateToStr(tglExcelRaw) : '';
+  const tglDate = parseTglID(tglExcelStr) || parseTglID(wd.tanggal);
   const fallback = new Date(kg.createdAt);
   const refDate = (tglDate && !isNaN(tglDate)) ? tglDate : fallback;
+  // Asal Institusi
+  const guru=count('Guru'), pengasuh=count('Pengasuh Orang Tua'), cbr=count('CBR Worker'),
+        nakes=count('Nakes'), staff=count('Staff Mitra'), pemerintah=count('Pemangku Kepentingan'),
+        anakDisab=count('Anak dan Remaja Disabilitas'), anakNonDisab=count('Anak dan Remaja Non Disabilitas');
+  // Lainnya = kategori "Lainnya" + kategori kosong/tidak dikenal, supaya jumlah kolom = Total
+  const lainnya = total-(guru+pengasuh+cbr+nakes+staff+pemerintah+anakDisab+anakNonDisab);
   return {
+    _ts:refDate.getTime(), _tglOk:!!(tglDate && !isNaN(tglDate)),
     tahun:refDate.getFullYear(), bulan:BULAN[refDate.getMonth()],
     outcome:wd.outcome, output:wd.output, indikator:wd.indikator,
     jenis_kegiatan:wd.jenis_kegiatan, nama_kegiatan:wd.nama_kegiatan,
     pelaksana:wd.pelaksana, pelaporan:wd.pelaporan,
-    peserta_target:pesertaTarget, tanggal:wd.tanggal, lokasi:wd.lokasi,
+    peserta_target:pesertaTarget, tanggal:tglExcelStr||wd.tanggal, lokasi:wd.lokasi,
     laki, perempuan, u25, u26, total, oypmk:'',
     disab, nonDisab,
-    guru:count('Guru'), pengasuh:count('Pengasuh Orang Tua'), cbr:count('CBR Worker'),
-    nakes:count('Nakes'), staff:count('Staff Mitra'), pemerintah:count('Pemangku Kepentingan'),
-    lainnya:count('Lainnya'), totalInst:total,
+    guru, pengasuh, cbr, nakes, staff, pemerintah, anakDisab, anakNonDisab,
+    lainnya, totalInst:total,
     tangible_output:wd.tangible_output, follow_up:wd.follow_up,
     evaluasi:wd.evaluasi, lesson_learnt:wd.lesson_learnt, capaian:wd.capaian,
   };
@@ -841,7 +867,7 @@ function calcRow(kg){
 
 async function renderMonitoring(){
   const all = await dbGetAll('kegiatan');
-  const sorted = [...all].sort((a,b)=>new Date(a.createdAt)-new Date(b.createdAt));
+  const sorted = [...all].sort((a,b)=>calcRow(a)._ts-calcRow(b)._ts);
 
   let totalPeserta=0, totalKeg=sorted.length;
   sorted.forEach(k=>totalPeserta+=(k.excelRows||[]).length);
@@ -892,6 +918,8 @@ async function renderMonitoring(){
       <td class="num">${r.nakes}</td>
       <td class="num">${r.staff}</td>
       <td class="num">${r.pemerintah}</td>
+      <td class="num">${r.anakDisab}</td>
+      <td class="num">${r.anakNonDisab}</td>
       <td class="num">${r.lainnya}</td>
       <td class="num">${r.totalInst}</td>
       <td>${full(r.tangible_output)}</td>
@@ -929,7 +957,7 @@ async function exportMonitoring(){
   ws.getCell('A1').value=`\n      Monthly Workplan Monitoring\n      [${SCN_NAME}]`;
   ws.getCell('A1').font={bold:true};
   ws.getCell('A1').alignment={horizontal:'right',vertical:'middle',wrapText:true};
-  ws.mergeCells('A1:AL4');
+  ws.mergeCells('A1:AN4');
 
   // Baris 5 - header utama
   const hdr5=[
@@ -948,14 +976,14 @@ async function exportMonitoring(){
     {col:'N',val:'Lokasi Kegiatan ',merge:'N5:N6'},
     {col:'O',val:'Peserta yang hadir',merge:'O5:S5'},
     {col:'T',val:'Disabilitas',merge:'T5:V5'},
-    {col:'W',val:'Asal Institusi',merge:'W5:AD5'},
-    {col:'AE',val:'Tangible Output',merge:'AE5:AE6'},
-    {col:'AF',val:'Follow Up/Rekomendasi',merge:'AF5:AF6'},
-    {col:'AG',val:'Evaluasi',merge:'AG5:AG6'},
-    {col:'AH',val:'Leason Learnt',merge:'AH5:AH6'},
-    {col:'AI',val:'Capaian',merge:'AI5:AI6'},
-    {col:'AJ',val:'Remarks',merge:'AJ5:AJ6'},
-    {col:'AK',val:'MoV Tangible Output',merge:'AK5:AL5'},
+    {col:'W',val:'Asal Institusi',merge:'W5:AF5'},
+    {col:'AG',val:'Tangible Output',merge:'AG5:AG6'},
+    {col:'AH',val:'Follow Up/Rekomendasi',merge:'AH5:AH6'},
+    {col:'AI',val:'Evaluasi',merge:'AI5:AI6'},
+    {col:'AJ',val:'Leason Learnt',merge:'AJ5:AJ6'},
+    {col:'AK',val:'Capaian',merge:'AK5:AK6'},
+    {col:'AL',val:'Remarks',merge:'AL5:AL6'},
+    {col:'AM',val:'MoV Tangible Output',merge:'AM5:AN5'},
   ];
   hdr5.forEach(h=>{
     const c=ws.getCell(h.col+'5');
@@ -972,8 +1000,9 @@ async function exportMonitoring(){
     ['O6','Laki'],['P6','Perempuan'],['Q6','<=25 tahun'],['R6','>=26 tahun'],['S6','Total'],
     ['T6','OYPMK'],['U6','Disabilitas'],['V6','Non'],
     ['W6','Guru'],['X6','Pengasuh/Ortu'],['Y6','CBR worker'],['Z6','Nakes'],
-    ['AA6','Staff Mitra'],['AB6','Pemerintah'],['AC6','Lainnya'],['AD6','Total'],
-    ['AK6','Ceklis'],['AL6','Dokumen'],
+    ['AA6','Staff Mitra'],['AB6','Pemerintah'],['AC6','Anak/Remaja Disabilitas'],['AD6','Anak/Remaja Non Disabilitas'],
+    ['AE6','Lainnya'],['AF6','Total'],
+    ['AM6','Ceklis'],['AN6','Dokumen'],
   ];
   hdr6.forEach(([addr,val])=>{
     const c=ws.getCell(addr);
@@ -986,50 +1015,31 @@ async function exportMonitoring(){
   // Column widths
   const colW={A:8,B:10,C:12,D:24.88,E:25.63,F:12.13,G:35.38,H:14.88,I:15.38,J:12.38,
     K:10,L:10,M:18.38,N:17.13,O:7.75,P:10,Q:10,R:10,S:8,T:8,U:10,V:8,
-    W:10,X:14,Y:10,Z:8,AA:12,AB:12,AC:10,AD:8,AE:35.88,AF:53.88,AG:20.38,
-    AH:25.38,AI:55.38,AJ:12,AK:12,AL:12};
+    W:10,X:14,Y:10,Z:8,AA:12,AB:12,AC:14,AD:14,AE:10,AF:8,AG:35.88,AH:53.88,AI:20.38,
+    AJ:25.38,AK:55.38,AL:12,AM:12,AN:12};
   Object.entries(colW).forEach(([col,w])=>{ ws.getColumn(col).width=w; });
 
-  // Data rows mulai baris 7 — sort by tahun ASC lalu bulan ASC
-  const _bulanOrder={januari:0,februari:1,maret:2,april:3,mei:4,juni:5,juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
-  const _parseTgl=(tgl)=>{
-    if(!tgl) return null;
-    const bm=_bulanOrder;
-    const parts=tgl.trim().split(/[\s\/\-]+/);
-    if(parts.length>=3){
-      const bs=parts[1].toLowerCase();
-      if(bm[bs]!==undefined) return new Date(parseInt(parts[2]),bm[bs],parseInt(parts[0]));
-      if(parts[0].length===4) return new Date(parseInt(parts[0]),parseInt(parts[1])-1,parseInt(parts[2]));
-      return new Date(parseInt(parts[2]),parseInt(parts[1])-1,parseInt(parts[0]));
-    }
-    return new Date(tgl);
-  };
-  const sorted = [...all].sort((a,b)=>{
-    const ra=calcRow(a), rb=calcRow(b);
-    if(ra.tahun!==rb.tahun) return ra.tahun-rb.tahun;
-    const bd=(_bulanOrder[(ra.bulan||'').toLowerCase()]??99)-(_bulanOrder[(rb.bulan||'').toLowerCase()]??99);
-    if(bd!==0) return bd;
-    const da=_parseTgl(ra.tanggal), db=_parseTgl(rb.tanggal);
-    if(da&&db&&!isNaN(da)&&!isNaN(db)) return da-db;
-    return 0;
-  });
+  // Data rows mulai baris 7 — urut berdasarkan tanggal kegiatan (ASC)
+  const sorted = [...all].sort((a,b)=>calcRow(a)._ts-calcRow(b)._ts);
   sorted.forEach((kg,i)=>{
     const r=calcRow(kg);
     const row=ws.getRow(7+i);
     const vals=[
       r.tahun, r.bulan, r.outcome, r.output, r.indikator,
       r.jenis_kegiatan, r.nama_kegiatan, r.pelaksana, r.pelaporan,
-      r.peserta_target, '', '', r.tanggal, r.lokasi,
+      r.peserta_target, '', '', (r._tglOk ? new Date(Date.UTC(new Date(r._ts).getFullYear(),new Date(r._ts).getMonth(),new Date(r._ts).getDate())) : r.tanggal), r.lokasi,
       r.laki, r.perempuan, r.u25, r.u26, r.total, r.oypmk,
       r.disab, r.nonDisab,
-      r.guru, r.pengasuh, r.cbr, r.nakes, r.staff, r.pemerintah, r.lainnya, r.totalInst,
+      r.guru, r.pengasuh, r.cbr, r.nakes, r.staff, r.pemerintah, r.anakDisab, r.anakNonDisab, r.lainnya, r.totalInst,
       r.tangible_output, r.follow_up, r.evaluasi, r.lesson_learnt, r.capaian,
       '','','',
     ];
-    vals.forEach((v,ci)=>{ row.getCell(ci+1).value=v||''; });
+    // FIX: angka 0 tetap ditulis 0 (sebelumnya jadi sel kosong)
+    vals.forEach((v,ci)=>{ row.getCell(ci+1).value=(v===0)?0:(v||''); });
+    if(r._tglOk) row.getCell(13).numFmt='dd/mm/yyyy';
     row.getCell(1).alignment={vertical:'top'};
     // Kolom narasi: wrapText supaya newline tampil di Excel
-    for(let nc=31;nc<=35;nc++){
+    for(let nc=33;nc<=37;nc++){
       const cell=row.getCell(nc);
       cell.alignment={vertical:'top',wrapText:true};
     }
@@ -1146,7 +1156,7 @@ async function exportStakeholder(){
       row.getCell(1).value=pi+1;
       row.getCell(2).value=p.nama;
       row.getCell(3).value=p.usia||'';
-      const jkNorm=(v=>{const s=(v||'').toLowerCase();return s.includes('laki')?'L':s.includes('perempuan')?'P':v||'';});
+      const jkNorm=(v=>jkCode(v)||v||'');
       row.getCell(4).value=jkNorm(p.jk);
       row.getCell(5).value=p.instansi||'';
       row.getCell(6).value=p.jabatan||'';
@@ -1248,7 +1258,7 @@ async function uploadStakeholder(){
         no              : idx + 1,
         nama            : p.nama,
         usia            : p.usia,
-        jenis_kelamin   : (v=>{const s=(v||'').toLowerCase();return s.includes('laki')?'L':s.includes('perempuan')?'P':v||''})(p.jk),
+        jenis_kelamin   : jkCode(p.jk)||p.jk||'',
         instansi        : p.instansi,
         posisi          : p.jabatan,
         jumlah_kegiatan : kegs.filter(({key})=>p.keg[key]===1).length,
@@ -1285,27 +1295,7 @@ async function uploadMonitoring(){
   btn.disabled=true;
   btn.innerHTML='<span class="spinner"></span>Mengupload...';
 
-  const _bo={januari:0,februari:1,maret:2,april:3,mei:4,juni:5,juli:6,agustus:7,september:8,oktober:9,november:10,desember:11};
-  const _pt=(tgl)=>{
-    if(!tgl) return null;
-    const p=tgl.trim().split(/[\s\/\-]+/);
-    if(p.length>=3){
-      const bs=p[1].toLowerCase();
-      if(_bo[bs]!==undefined) return new Date(parseInt(p[2]),_bo[bs],parseInt(p[0]));
-      if(p[0].length===4) return new Date(parseInt(p[0]),parseInt(p[1])-1,parseInt(p[2]));
-      return new Date(parseInt(p[2]),parseInt(p[1])-1,parseInt(p[0]));
-    }
-    return new Date(tgl);
-  };
-  const sorted = [...all].sort((a,b)=>{
-    const ra=calcRow(a), rb=calcRow(b);
-    if(ra.tahun!==rb.tahun) return ra.tahun-rb.tahun;
-    const bd=(_bo[(ra.bulan||'').toLowerCase()]??99)-(_bo[(rb.bulan||'').toLowerCase()]??99);
-    if(bd!==0) return bd;
-    const da=_pt(ra.tanggal), db=_pt(rb.tanggal);
-    if(da&&db&&!isNaN(da)&&!isNaN(db)) return da-db;
-    return 0;
-  });
+  const sorted = [...all].sort((a,b)=>calcRow(a)._ts-calcRow(b)._ts);
   const rows = sorted.map(kg=>{
     const r = calcRow(kg);
     return {
@@ -1335,6 +1325,8 @@ async function uploadMonitoring(){
       nakes           : r.nakes          || 0,
       staff           : r.staff          || 0,
       pemerintah      : r.pemerintah     || 0,
+      anak_disab      : r.anakDisab      || 0,
+      anak_non_disab  : r.anakNonDisab   || 0,
       lainnya         : r.lainnya        || 0,
       total_inst      : r.totalInst      || 0,
       tangible_output : r.tangible_output|| '',
